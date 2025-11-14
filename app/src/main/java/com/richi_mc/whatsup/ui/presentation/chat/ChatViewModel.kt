@@ -1,12 +1,17 @@
 package com.richi_mc.whatsup.ui.presentation.chat
 
+import android.content.Context
+import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.richi_mc.whatsup.network.ChatModel
+import com.richi_mc.whatsup.network.model.ChatModel
 import com.richi_mc.whatsup.network.ChatModule.Companion.NETWORK_DATA_SOURCE
 import com.richi_mc.whatsup.network.NetworkDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +22,7 @@ import javax.inject.Named
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
+    @ApplicationContext val context : Context,
     @Named(NETWORK_DATA_SOURCE) val networkDataSource: NetworkDataSource
 ) : ViewModel() {
 
@@ -29,27 +35,39 @@ class ChatViewModel @Inject constructor(
         ignoreUnknownKeys = true
     }
 
-
+    lateinit var receiveJob : Job
     fun init(chatId: Int) {
         this.chatId = chatId
-        // TODO: Charge messages
-        viewModelScope.launch(Dispatchers.IO) {
-            val messages = networkDataSource.getChatInfo(chatId)
-            val chatModel = json.decodeFromString<ChatModel>(messages)
 
-            withContext(Dispatchers.Main) {
-                _chatModel.value = chatModel
+        receiveJob = viewModelScope.launch(Dispatchers.IO) {
+            networkDataSource.getFlowMessage().collect { data ->
+                Log.d("ChatViewModel", "Mensaje recibido: $data")
+
+                val chatModel = json.decodeFromString<ChatModel>(data)
+                withContext(Dispatchers.Main) {
+                    _chatModel.value = chatModel
+                }
             }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            Log.d("ChatViewModel", "Mande la petición para obtener la información del chat")
+            networkDataSource.getChatInfo(chatId)
         }
     }
 
     fun sendMessage(content : String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val messages = networkDataSource.sendMessage(content, chatId)
-            val chatModel : ChatModel = json.decodeFromString(messages)
-            withContext(Dispatchers.Main) {
-                _chatModel.value = chatModel
-            }
+            networkDataSource.sendMessage(content, chatId)
         }
     }
+
+    fun destroyMessageCollection() {
+        Log.d("ChatViewModel", "Elimine la instancia del Flow para liberar la escucha de chats")
+        viewModelScope.launch(context = Dispatchers.IO){
+            // networkDataSource.leaveChat(chatId)
+        }
+        receiveJob.cancel()
+    }
+
 }

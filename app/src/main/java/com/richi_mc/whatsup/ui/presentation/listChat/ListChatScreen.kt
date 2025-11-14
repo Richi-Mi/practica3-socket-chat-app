@@ -128,7 +128,11 @@ fun ListChatScreen(onNavigateToChat: (Int) -> Unit) {
                         }
                     }
                     if( showEnterChat ) {
-                        AlertEnterChat {
+                        AlertEnterChat(
+                            onChatClick = {
+
+                            }
+                        ) {
                             showEnterChat = false
                         }
                     }
@@ -139,7 +143,9 @@ fun ListChatScreen(onNavigateToChat: (Int) -> Unit) {
     }
 }
 @Composable
-fun AlertEnterChat(onDismissRequest: () -> Unit) {
+fun AlertEnterChat( onChatClick: (String) -> Unit, onDismissRequest: () -> Unit) {
+
+    var id by remember { mutableStateOf("") }
     Dialog(
         onDismissRequest = {
             onDismissRequest()
@@ -162,8 +168,8 @@ fun AlertEnterChat(onDismissRequest: () -> Unit) {
             Spacer(Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = "",
-                onValueChange = {},
+                value = id,
+                onValueChange = { id = it },
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
@@ -171,7 +177,7 @@ fun AlertEnterChat(onDismissRequest: () -> Unit) {
             Button(
                 modifier = Modifier.padding(8.dp),
                 onClick = {
-
+                    onChatClick(id)
                 }
             ) {
                 Row(

@@ -3,18 +3,25 @@ package com.richi_mc.whatsup.network
 import android.util.Log
 import com.richi_mc.whatsup.R
 import com.richi_mc.whatsup.ui.model.Chat
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import org.json.JSONArray
 import org.json.JSONException
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.MulticastSocket
 import java.net.SocketException
 import java.net.UnknownHostException
 
-class NetworkDataSource {
+// Configuración del Multicast
+private const val MULTICAST_ADDRESS = "231.1.1.1" // Ejemplo de dirección de grupo
+private const val PORT = 8080
+private const val PACKET_LENGTH = 65530
 
-    private val socket: DatagramSocket
+class NetworkDataSource {
+    private val socket: MulticastSocket
     private var address: InetAddress? = null
     private var HOST: String? = null
     private var user: String? = null
@@ -24,32 +31,57 @@ class NetworkDataSource {
             this.HOST = host
             address = InetAddress.getByName(host)
         } catch (e: UnknownHostException) {
-            Log.d("NetworkDataSource", "Unknown host")
+            Log.d("NetworkDataSource", "Error al intentar conectarse al HOST")
             throw RuntimeException(e)
         }
     }
 
-    fun sendData(query: String): ByteArray? {
+    fun sendData(query: String): String? {
+
         val data = query.toByteArray()
         val packet = DatagramPacket(data, data.size, address, PORT)
+
         try {
+            // Manda el paquete.
             socket.send(packet)
-            Log.d("NetworkDataSource", "data sended")
+
             val eco = ByteArray(PACKET_LENGTH)
             val packetR = DatagramPacket(eco, eco.size, address, PORT)
-            socket.receive(packetR)
-            Log.d("NetworkDataSource", "data received")
 
-            return packetR.getData()
+            // Recibe el ECO de la petición.
+            socket.receive(packetR)
+
+            return String(packetR.data, 0, packetR.length)
         } catch (e: IOException) {
-            Log.e("NetworkDataSource", "data send failed")
+            Log.e("NetworkDataSource", "Error al enviar/recibir el paquete")
             throw RuntimeException(e)
+        }
+    }
+
+    fun sendMessage(content: String, chatId : Int) {
+        val query   = "SENDMESSAGE,$user,$chatId,$content"
+        val buffer  = query.toByteArray()
+        val packet  = DatagramPacket(buffer, buffer.size, address, PORT)
+
+        socket.send(packet)
+
+        Log.d("NetworkDataSource", "Mensaje enviado")
+    }
+
+    fun getFlowMessage(): Flow<String> = flow {
+        while(true) {
+            val buffer = ByteArray(PACKET_LENGTH)
+            val packet = DatagramPacket(buffer, buffer.size)
+            socket.receive(packet)
+            val message = String(packet.data, 0, packet.length)
+
+            emit(message)
         }
     }
 
     init {
         try {
-            socket = DatagramSocket()
+            socket = MulticastSocket(PORT)
         } catch (e: SocketException) {
             Log.d("NetworkDataSource", "Error creating socket")
             throw RuntimeException(e)
@@ -61,39 +93,25 @@ class NetworkDataSource {
         this.user = name
 
         // Send username.
-        val eco_receive = sendData(query)
-        val message = kotlin.text.String(eco_receive!!)
+        val message = sendData(query)
 
-        Log.d("NetworkDataSource", "Message received: " + message)
+        Log.d("NetworkDataSource", "sendUsername: Message received: " + message)
 
-        return message
+        return message ?: "error"
     }
-
     fun createGroup(name: String): String {
         val query = "CREATE," + name + "," + user
-        val data = query.toByteArray()
-        val packet = DatagramPacket(data, data.size, address, PORT)
-
-        try {
-            socket.send(packet)
-            Log.d("NetworkDataSource", "Create group sendend")
-            socket.receive(packet)
-            val message = String(packet.getData(), 0, packet.getLength())
-            Log.d("NetworkDataSource", "Message received: " + message)
-
-            return message
-        } catch (e: IOException) {
-            throw RuntimeException(e)
-        }
+        val message = sendData(query)
+        Log.d("NetworkDataSource", "createGroup: Message received: $message")
+        return message ?: "error"
     }
 
-    val chats: MutableList<Chat>
-        get() {
+    val chats: MutableList<Chat> get() {
             val query = "GET," + user
             val data = sendData(query)
             try {
                 val chats = ArrayList<Chat>()
-                val array = JSONArray(String(data!!))
+                val array = JSONArray(data)
 
                 for (i in 0..< array.length()) {
                     val `object` = array.getJSONObject(i)
@@ -105,23 +123,13 @@ class NetworkDataSource {
                 throw RuntimeException(e)
             }
         }
+    fun getChatInfo(chatId: Int) {
 
-    fun sendMessage(content: String?, chatId : Int): String {
-        val query = "SENDMESSAGE,$user,$chatId,$content"
-        val eco = sendData(query)
-        val message = String(eco!!)
+        val query = "GETCHAT,$chatId,$user"
+        val buffer  = query.toByteArray()
+        val packet  = DatagramPacket(buffer, buffer.size, address, PORT)
 
-        Log.d("NetworkDataSource", "Message received: $message")
-
-        return limpiarCadenaJson(message) ?: "{}"
-    }
-    fun getChatInfo(chatId: Int) : String {
-        val query = "GETCHAT,$chatId"
-        val eco = sendData(query)
-
-        val message = String(eco!!)
-        Log.d("NetworkDataSource", "Message received: $message")
-        return limpiarCadenaJson(message) ?: "{}"
+        socket.send(packet)
     }
 
     fun closeConnection() {
@@ -135,12 +143,14 @@ class NetworkDataSource {
         }
         return null
     }
+    fun leaveChat(chatId: Int) {
+        val query = "LEAVECHAT,$user,$chatId"
+        val message = sendData(query)
+
+        Log.d("NetworkDataSource", "leaveChat: $message")
+    }
 
     companion object {
-        private const val PORT = 8080
-        private const val PACKET_LENGTH = 65530
-
-
         var instance: NetworkDataSource? = null
             get() {
                 if (field == null) {

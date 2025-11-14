@@ -1,4 +1,4 @@
-package com.richi_mc.whatsup.network
+package com.richi_mc.whatsup.network.model
 
 import kotlinx.serialization.Serializable
 
